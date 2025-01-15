@@ -56,7 +56,7 @@ class _MyAppState extends State<MyApp> {
 
     RtmpConnection connection = await RtmpConnection.create();
     connection.eventChannel.receiveBroadcastStream().listen((event) {
-      switch (event["data"]["code"]) {
+      switch (event["data"]?["code"]) {
         case 'NetConnection.Connect.Success':
           if (_mode == "publish") {
             _stream?.publish("live");
@@ -66,6 +66,12 @@ class _MyAppState extends State<MyApp> {
           setState(() {
             _recording = true;
           });
+          break;
+        case "SpeedStatistics":
+          print("outSpeed（KB/s）:");
+          print(event["data"]?["outSpeedInByte"] / 1000);
+          print("inSpeed（KB/s）:");
+          print(event["data"]?["inSpeedInByte"] / 1000);
           break;
       }
     });

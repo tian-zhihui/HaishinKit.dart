@@ -23,8 +23,15 @@ class RtmpConnectionHandler(
     private var channel: EventChannel
     private var eventSink: EventChannel.EventSink? = null
 
+    @Volatile
+    private var shouldSendSpeedStatistics = false
+
+    private var previousTotalBytesOut: Long = 0
+    private var previousTotalBytesIn: Long = 0
+
     init {
         instance?.addEventListener(Event.RTMP_STATUS, this)
+        instance?.addEventListener(Event.IO_ERROR, this)
         channel = EventChannel(
             plugin.flutterPluginBinding.binaryMessenger,
             "com.haishinkit.eventchannel/${hashCode()}"
@@ -37,10 +44,12 @@ class RtmpConnectionHandler(
             "$TAG#connect" -> {
                 val command = call.argument<String>("command") ?: ""
                 instance?.connect(command)
+                startSendSpeedStatistics()
                 result.success(null)
             }
             "$TAG#close" -> {
                 instance?.close()
+                stopSendSpeedStatistics()
                 result.success(null)
             }
             "$TAG#dispose" -> {
@@ -60,6 +69,40 @@ class RtmpConnectionHandler(
         plugin.uiThreadHandler.post {
             eventSink?.success(map)
         }
+    }
+
+    fun startSendSpeedStatistics() {
+        shouldSendSpeedStatistics = true
+        Thread {
+            while (eventSink != null && shouldSendSpeedStatistics) {
+                val map = HashMap<String, Any?>()
+                val data = HashMap<String, Any?>()
+                data["code"] = "SpeedStatistics"
+                // get current speed by minus previous total bytes
+                val totalBytesOut = this.instance?.totalBytesOut ?: 0L
+                val totalBytesIn = this.instance?.totalBytesIn ?: 0L
+                data["outSpeedInByte"] = totalBytesOut?.minus(previousTotalBytesOut)
+                data["inSpeedInByte"] = totalBytesIn?.minus(previousTotalBytesIn)
+                previousTotalBytesOut = totalBytesOut
+                previousTotalBytesIn = totalBytesIn
+                map["data"] = data
+                plugin.uiThreadHandler.post {
+                    eventSink?.success(map)
+                }
+                try {
+                    Thread.sleep(1000) // send every 1 second
+                } catch (e: InterruptedException) {
+                    e.printStackTrace()
+                }
+            }
+        }.start()
+    }
+
+    fun stopSendSpeedStatistics(){
+        shouldSendSpeedStatistics = false
+        // reset bytes statistics
+        previousTotalBytesOut = 0
+        previousTotalBytesIn = 0
     }
 
     override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {

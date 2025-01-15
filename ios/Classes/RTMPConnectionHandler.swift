@@ -7,6 +7,7 @@ class RTMPConnectionHandler: NSObject, MethodCallHandler {
     private let plugin: SwiftHaishinKitPlugin
     private var channel: FlutterEventChannel?
     private var eventSink: FlutterEventSink?
+    private var shouldSendSpeedStatistics: Bool = false
 
     init(plugin: SwiftHaishinKitPlugin) {
         self.plugin = plugin
@@ -32,14 +33,37 @@ class RTMPConnectionHandler: NSObject, MethodCallHandler {
                 return
             }
             instance?.connect(command)
+            startSendSpeedStatistics()
         case "RtmpConnection#close":
             instance?.close()
+            stopSendSpeedStatistics()
         case "RtmpConnection#dispose":
             instance = nil
             plugin.onDispose(id: Int(bitPattern: ObjectIdentifier(self)))
         default:
             result(FlutterMethodNotImplemented)
         }
+    }
+
+    private func startSendSpeedStatistics() {
+        shouldSendSpeedStatistics = true
+        DispatchQueue.global().async {
+            while self.eventSink != nil && self.shouldSendSpeedStatistics {
+                var map: [String: Any?] = [:]
+                var data: [String: Any?] = [:]
+                data["code"] = "SpeedStatistics"
+                // get current speed
+                data["outSpeedInByte"] = self.instance?.currentBytesOutPerSecond
+                data["inSpeedInByte"] = self.instance?.currentBytesInPerSecond
+                map["data"] = data
+                self.eventSink?(map)
+                Thread.sleep(forTimeInterval: 1) // send every 1 second
+            }
+        }
+    }
+
+    private func stopSendSpeedStatistics() {
+        shouldSendSpeedStatistics = false
     }
 
     @objc
